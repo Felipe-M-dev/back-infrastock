@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Runtime storage
+storage/
+
+# Logs
+*.log
+logs/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# AI / local tooling
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+
+# Manual test artifacts
+confirm-*.json
+import-*.csv
+server-*.json
+credential-software-assignment.json
+infrastock-prueba.csv
+
+# XLSX test artifacts
+server-import-template.xlsx
+xlsx-ratio-bomb.xlsx
+xlsx-total-bomb*.xlsx
+
+# Temporary migration/test files
+migration.sql

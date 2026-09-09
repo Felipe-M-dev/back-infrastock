@@ -1,0 +1,444 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum CredentialCategory {
+  OPERATING_SYSTEM
+  DATABASE
+  MIDDLEWARE
+  APPLICATION
+  TRANSFER
+  SERVICE
+  OTHER
+}
+
+enum CredentialAccountType {
+  ADMINISTRATOR
+  OPERATION
+  SERVICE
+  APPLICATION
+  READ_ONLY
+  DATABASE
+  INTEGRATION
+  OTHER
+}
+
+enum CredentialScope {
+  GLOBAL
+  COMPANY
+  SERVER
+  SOFTWARE
+}
+
+model Company {
+  id                  Int     @id @default(autoincrement())
+  name                String
+  slug                String  @unique
+  logoUrl             String?
+  primaryColor        String  @default("#2563EB")
+  secondaryColor      String  @default("#0F172A")
+  backgroundColor     String  @default("#F1F5F9")
+  surfaceColor        String  @default("#FFFFFF")
+  textColor           String  @default("#0F172A")
+  logoBackgroundColor String  @default("#FFFFFF")
+  active              Boolean @default(true)
+
+  createdById Int?
+  updatedById Int?
+
+  createdBy User? @relation("CompanyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("CompanyUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  servers     Server[]
+  auditLogs   AuditLog[]
+  credentials Credential[]
+
+  outgoingAccess CompanyAccess[] @relation("CompanyAccessSource")
+  incomingAccess CompanyAccess[] @relation("CompanyAccessTarget")
+}
+
+model CompanyAccess {
+  id              Int      @id @default(autoincrement())
+  sourceCompanyId Int
+  targetCompanyId Int
+  createdAt       DateTime @default(now())
+
+  sourceCompany Company @relation("CompanyAccessSource", fields: [sourceCompanyId], references: [id], onDelete: Cascade)
+  targetCompany Company @relation("CompanyAccessTarget", fields: [targetCompanyId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceCompanyId, targetCompanyId])
+  @@index([sourceCompanyId])
+  @@index([targetCompanyId])
+}
+
+model User {
+  id           Int     @id @default(autoincrement())
+  username     String  @unique
+  passwordHash String
+  name         String
+  email        String? @unique
+  avatarUrl    String?
+  role         Role    @default(VIEWER)
+  active       Boolean @default(true)
+  tokenVersion Int     @default(0)
+
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companiesCreated Company[] @relation("CompanyCreatedBy")
+  companiesUpdated Company[] @relation("CompanyUpdatedBy")
+
+  serversCreated Server[] @relation("ServerCreatedBy")
+  serversUpdated Server[] @relation("ServerUpdatedBy")
+
+  operatingSystemsCreated OperatingSystem[] @relation("OperatingSystemCreatedBy")
+  operatingSystemsUpdated OperatingSystem[] @relation("OperatingSystemUpdatedBy")
+
+  softwareCreated Software[] @relation("SoftwareCreatedBy")
+  softwareUpdated Software[] @relation("SoftwareUpdatedBy")
+
+  credentialsCreated Credential[] @relation("CredentialCreatedBy")
+  credentialsUpdated Credential[] @relation("CredentialUpdatedBy")
+
+  serverCredentialAssignments         ServerCredential[]         @relation("ServerCredentialCreatedBy")
+  serverSoftwareCredentialAssignments ServerSoftwareCredential[] @relation("ServerSoftwareCredentialCreatedBy")
+
+  auditLogs           AuditLog[]
+  serverImportBatches ServerImportBatch[]
+}
+
+model OperatingSystem {
+  id      Int     @id @default(autoincrement())
+  name    String
+  version String
+  active  Boolean @default(true)
+
+  createdById Int?
+  updatedById Int?
+
+  createdBy User? @relation("OperatingSystemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("OperatingSystemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  servers Server[]
+
+  @@unique([name, version])
+}
+
+model Software {
+  id       Int     @id @default(autoincrement())
+  name     String  @unique
+  active   Boolean @default(true)
+  category String  @default("OTHER")
+
+  createdById Int?
+  updatedById Int?
+
+  createdBy User? @relation("SoftwareCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("SoftwareUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serverSoftware ServerSoftware[]
+  pricingTariffs PricingTariff[]
+
+  @@index([category])
+}
+
+model Server {
+  id             Int     @id @default(autoincrement())
+  hostname       String  @unique
+  ipAddress      String? @unique @db.Inet
+  environment    String?
+  cpuCores       Int?
+  ramGb          Int?
+  diskGb         Int?
+  notes          String?
+  active         Boolean @default(true)
+  servicesOnitec Boolean @default(true)
+
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  operatingSystemId Int?
+  operatingSystem   OperatingSystem? @relation(fields: [operatingSystemId], references: [id])
+
+  createdById Int?
+  updatedById Int?
+
+  createdBy User? @relation("ServerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("ServerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  software    ServerSoftware[]
+  credentials ServerCredential[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ServerSoftware {
+  id         Int      @id @default(autoincrement())
+  serverId   Int
+  softwareId Int
+  version    String
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  server   Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  software Software @relation(fields: [softwareId], references: [id])
+
+  credentials ServerSoftwareCredential[]
+
+  @@unique([serverId, softwareId])
+}
+
+model Credential {
+  id                Int                   @id @default(autoincrement())
+  name              String
+  username          String
+  encryptedPassword String                @db.Text
+  iv                String
+  authTag           String
+  keyVersion        Int                   @default(1)
+  category          CredentialCategory
+  accountType       CredentialAccountType
+  environment       String?
+  scope             CredentialScope       @default(COMPANY)
+  description       String?
+  active            Boolean               @default(true)
+
+  expiresAt        DateTime?
+  lastRotatedAt    DateTime?
+  rotationDays     Int?
+  rotationRequired Boolean   @default(false)
+
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  createdById Int?
+  updatedById Int?
+
+  createdBy User? @relation("CredentialCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("CredentialUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  serverAssignments         ServerCredential[]
+  serverSoftwareAssignments ServerSoftwareCredential[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([category])
+  @@index([accountType])
+  @@index([environment])
+  @@index([scope])
+  @@index([active])
+  @@index([expiresAt])
+  @@index([rotationRequired])
+  @@index([companyId, environment, active])
+}
+
+model ServerCredential {
+  id           Int     @id @default(autoincrement())
+  serverId     Int
+  credentialId Int
+  purpose      String?
+
+  createdById Int?
+
+  server     Server     @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  credential Credential @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  createdBy  User?      @relation("ServerCredentialCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([serverId, credentialId])
+  @@index([serverId])
+  @@index([credentialId])
+}
+
+model ServerSoftwareCredential {
+  id               Int     @id @default(autoincrement())
+  serverSoftwareId Int
+  credentialId     Int
+  purpose          String?
+
+  createdById Int?
+
+  serverSoftware ServerSoftware @relation(fields: [serverSoftwareId], references: [id], onDelete: Cascade)
+  credential     Credential     @relation(fields: [credentialId], references: [id], onDelete: Restrict)
+  createdBy      User?          @relation("ServerSoftwareCredentialCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([serverSoftwareId, credentialId])
+  @@index([serverSoftwareId])
+  @@index([credentialId])
+}
+
+model AuditLog {
+  id         Int     @id @default(autoincrement())
+  action     String
+  entityType String
+  entityId   Int?
+  entityName String?
+  details    Json?
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  actorUserId       Int?
+  actorCompanyId    Int?
+  integritySequence BigInt @unique @default(0)
+  integrityVersion  Int    @default(1)
+  previousHash      String @default(dbgenerated("repeat('0'::text, 64)")) @db.VarChar(64)
+  integrityHash     String @default("PENDING") @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([companyId])
+  @@index([createdAt])
+  @@index([integrityHash])
+}
+
+model Network {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  cidr        String  @unique
+  description String?
+  active      Boolean @default(true)
+
+  reservations IpReservation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model IpReservation {
+  id          Int     @id @default(autoincrement())
+  networkId   Int
+  ipAddress   String  @unique @db.Inet
+  description String?
+  active      Boolean @default(true)
+
+  network Network @relation(fields: [networkId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([networkId])
+  @@index([active])
+}
+
+model ServerImportBatch {
+  id               Int    @id @default(autoincrement())
+  fileName         String
+  status           String @default("PREVIEWED")
+  totalRows        Int    @default(0)
+  validRows        Int    @default(0)
+  errorRows        Int    @default(0)
+  createdCount     Int    @default(0)
+  updatedCount     Int    @default(0)
+  reactivatedCount Int    @default(0)
+  skippedCount     Int    @default(0)
+  failedCount      Int    @default(0)
+
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  rows ServerImportRow[]
+
+  createdAt           DateTime  @default(now())
+  processingStartedAt DateTime?
+  completedAt         DateTime?
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status, processingStartedAt])
+}
+
+model ServerImportRow {
+  id               Int     @id @default(autoincrement())
+  batchId          Int
+  rowNumber        Int
+  rawData          Json
+  normalizedData   Json?
+  suggestedAction  String
+  validationStatus String
+  errors           Json?
+  warnings         Json?
+  selectedAction   String?
+  resultStatus     String?
+  resultMessage    String?
+  serverId         Int?
+
+  batch ServerImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([batchId, rowNumber])
+  @@index([batchId])
+}
+
+model EconomicIndicator {
+  id        Int      @id @default(autoincrement())
+  code      String
+  date      DateTime
+  value     Decimal  @db.Decimal(16, 4)
+  source    String
+  fetchedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@unique([code, date])
+  @@index([code, date])
+}
+
+model PricingTariff {
+  id                  Int      @id @default(autoincrement())
+  code                String   @unique
+  category            String
+  name                String
+  unit                String
+  value               Decimal  @db.Decimal(16, 6)
+  valueType           String
+  active              Boolean  @default(true)
+  sourceNote          String?
+  operatingSystemName String?
+  softwareId          Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  software Software? @relation(fields: [softwareId], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([active])
+  @@index([operatingSystemName])
+  @@index([softwareId])
+}
