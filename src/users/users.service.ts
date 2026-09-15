@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
+import { assertProtectedAccountUpdate, assertUsernameNotReserved } from '../auth/personal-vault-policy.js';
 
 interface CurrentUser {
   sub: number;
@@ -140,6 +141,8 @@ export class UsersService {
   ) {
     const username =
       dto.username.trim();
+
+    assertUsernameNotReserved(username);
 
     const name =
       dto.name.trim();
@@ -404,6 +407,8 @@ export class UsersService {
   ) {
     const current =
       await this.findOne(id);
+
+    assertProtectedAccountUpdate(current, dto, currentUser);
 
     this.assertSelfProtection(
       current,
@@ -801,6 +806,10 @@ export class UsersService {
     const user =
       await this.findOne(id);
 
+    if (user.username === 'admin') {
+      throw new ForbiddenException('La cuenta admin está protegida y no puede eliminarse');
+    }
+
     if (
       id ===
       currentUser.sub
@@ -912,6 +921,7 @@ export class UsersService {
     file: UploadedMediaFile,
     currentUser: CurrentUser,
   ) {
+    assertProtectedAccountUpdate(await this.findOne(userId), {}, currentUser);
     return this.updateAvatar(
       userId,
       file,
@@ -923,6 +933,7 @@ export class UsersService {
     userId: number,
     currentUser: CurrentUser,
   ) {
+    assertProtectedAccountUpdate(await this.findOne(userId), {}, currentUser);
     return this.removeAvatar(
       userId,
       currentUser.sub,

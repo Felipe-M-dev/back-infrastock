@@ -118,6 +118,8 @@ model User {
   credentialsCreated Credential[] @relation("CredentialCreatedBy")
   credentialsUpdated Credential[] @relation("CredentialUpdatedBy")
 
+  personalCredentials PersonalCredential[]
+
   serverCredentialAssignments         ServerCredential[]         @relation("ServerCredentialCreatedBy")
   serverSoftwareCredentialAssignments ServerSoftwareCredential[] @relation("ServerSoftwareCredentialCreatedBy")
 
@@ -126,10 +128,11 @@ model User {
 }
 
 model OperatingSystem {
-  id      Int     @id @default(autoincrement())
-  name    String
-  version String
-  active  Boolean @default(true)
+  id            Int     @id @default(autoincrement())
+  name          String
+  version       String
+  active        Boolean @default(true)
+  eolProductKey String?
 
   createdById Int?
   updatedById Int?
@@ -143,13 +146,15 @@ model OperatingSystem {
   servers Server[]
 
   @@unique([name, version])
+  @@index([eolProductKey])
 }
 
 model Software {
-  id       Int     @id @default(autoincrement())
-  name     String  @unique
-  active   Boolean @default(true)
-  category String  @default("OTHER")
+  id            Int     @id @default(autoincrement())
+  name          String  @unique
+  active        Boolean @default(true)
+  category      String  @default("OTHER")
+  eolProductKey String?
 
   createdById Int?
   updatedById Int?
@@ -164,6 +169,7 @@ model Software {
   pricingTariffs PricingTariff[]
 
   @@index([category])
+  @@index([eolProductKey])
 }
 
 model Server {
@@ -214,6 +220,24 @@ model ServerSoftware {
   credentials ServerSoftwareCredential[]
 
   @@unique([serverId, softwareId])
+}
+
+model PersonalCredential {
+  id                Int      @id @default(autoincrement())
+  ownerId           Int
+  owner             User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name              String   @db.VarChar(160)
+  username          String   @db.VarChar(254)
+  location          String?  @db.VarChar(500)
+  notes             String?  @db.VarChar(2000)
+  encryptedPassword String   @db.Text
+  iv                String
+  authTag           String
+  keyVersion        Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([ownerId, name])
 }
 
 model Credential {

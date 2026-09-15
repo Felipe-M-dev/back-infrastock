@@ -43,3 +43,6 @@ xlsx-total-bomb*.xlsx
 
 # Temporary migration/test files
 migration.sql
+!prisma/migrations/20260915190000_add_personal_credentials/migration.sql
+
+!prisma/migrations/20260915213000_add_eol_product_keys/migration.sql

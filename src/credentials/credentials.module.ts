@@ -21,6 +21,8 @@ import {
 import {
   CredentialsService,
 } from './credentials.service.js';
+import { PersonalCredentialsController } from './personal-credentials.controller.js';
+import { PersonalCredentialsService } from './personal-credentials.service.js';
 
 @Module({
   imports: [
@@ -29,12 +31,14 @@ import {
 
   controllers: [
     CredentialsController,
+    PersonalCredentialsController,
   ],
 
   providers: [
     CredentialsService,
     CredentialCryptoService,
     CredentialSecretAccessService,
+    PersonalCredentialsService,
   ],
 
   exports: [

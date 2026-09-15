@@ -114,6 +114,7 @@ async function bootstrap() {
       const sensitivePath =
         request.path.startsWith('/auth/') ||
         request.path.startsWith('/credentials') ||
+        request.path.startsWith('/personal-credentials') ||
         request.path.startsWith('/audit') ||
         request.path.startsWith('/users');
 
