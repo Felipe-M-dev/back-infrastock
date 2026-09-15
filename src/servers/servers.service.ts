@@ -2063,43 +2063,265 @@ export class ServersService {
       );
     }
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        await tx.server.update({
-          where: { id },
-          data: {
-            active: true,
-            updatedById: currentUser.sub,
-          },
-        });
+    let assignedIp =
+      existingServer.ipAddress;
 
-        await tx.auditLog.create({
-          data: {
-            action: 'ACTIVATE',
-            entityType: 'SERVER',
-            entityId: id,
-            entityName: existingServer.hostname,
-            userId: currentUser.sub,
-            companyId: existingServer.companyId,
-            details: {
-              message: 'Servidor activado',
-              fields: ['active'],
-              changes: [
-                {
-                  field: 'active',
-                  label: 'Estado',
-                  before: 'Inactivo',
-                  after: 'Activo',
-                  beforeValue: false,
-                  afterValue: true,
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          const server =
+            await tx.server.findUnique({
+              where: {
+                id,
+              },
+              select: {
+                id: true,
+                hostname: true,
+                active: true,
+                ipAddress: true,
+                companyId: true,
+                provisioningReservation: {
+                  select: {
+                    id: true,
+                    ipAddress: true,
+                    active: true,
+                    networkId: true,
+                    description: true,
+                    network: {
+                      select: {
+                        id: true,
+                        name: true,
+                        cidr: true,
+                        active: true,
+                      },
+                    },
+                  },
                 },
-              ],
+              },
+            });
+
+          if (!server) {
+            throw new NotFoundException(
+              'Servidor no encontrado',
+            );
+          }
+
+          if (server.active) {
+            throw new ConflictException(
+              'El servidor ya está activo',
+            );
+          }
+
+          const reservation =
+            server.provisioningReservation;
+
+          if (
+            reservation &&
+            !reservation.active
+          ) {
+            throw new ConflictException(
+              `La reserva de aprovisionamiento ${reservation.ipAddress} ya no está activa`,
+            );
+          }
+
+          if (reservation) {
+            if (
+              !reservation.network.active ||
+              !isUsableIpv4InCidr(
+                reservation.ipAddress,
+                reservation.network.cidr,
+              )
+            ) {
+              throw new ConflictException(
+                'La red/VLAN o la IP reservada para el aprovisionamiento ya no están disponibles',
+              );
+            }
+
+            const serverUsingIp =
+              await tx.server.findFirst({
+                where: {
+                  ipAddress:
+                    reservation.ipAddress,
+                  NOT: {
+                    id,
+                  },
+                },
+                select: {
+                  hostname: true,
+                },
+              });
+
+            if (serverUsingIp) {
+              throw new ConflictException(
+                `La IP ${reservation.ipAddress} se encuentra asociada al servidor ${serverUsingIp.hostname}`,
+              );
+            }
+
+            assignedIp =
+              reservation.ipAddress;
+          } else if (server.ipAddress) {
+            const activeReservation =
+              await tx.ipReservation.findFirst({
+                where: {
+                  active: true,
+                  ipAddress:
+                    server.ipAddress,
+                },
+                select: {
+                  description: true,
+                },
+              });
+
+            if (activeReservation) {
+              throw new ConflictException(
+                activeReservation.description
+                  ? `La IP ${server.ipAddress} está reservada: ${activeReservation.description}`
+                  : `La IP ${server.ipAddress} está reservada`,
+              );
+            }
+
+            assignedIp =
+              server.ipAddress;
+          } else {
+            assignedIp =
+              null;
+          }
+
+          await tx.server.update({
+            where: {
+              id,
             },
-          },
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+            data: {
+              active: true,
+              ipAddress:
+                assignedIp,
+              updatedById:
+                currentUser.sub,
+            },
+          });
+
+          if (reservation) {
+            await tx.ipReservation.delete({
+              where: {
+                id:
+                  reservation.id,
+              },
+            });
+
+            await tx.auditLog.create({
+              data: {
+                action: 'DELETE',
+                entityType:
+                  'IP_RESERVATION',
+                entityId:
+                  reservation.id,
+                entityName:
+                  reservation.ipAddress,
+                userId:
+                  currentUser.sub,
+                companyId:
+                  server.companyId,
+                details: {
+                  message:
+                    `Reserva consumida al activar el servidor ${server.hostname}`,
+                  networkId:
+                    reservation.networkId,
+                  network:
+                    reservation.network.name,
+                  serverId:
+                    server.id,
+                  server:
+                    server.hostname,
+                },
+              },
+            });
+          }
+
+          const changes:
+            AuditChange[] = [
+              {
+                field: 'active',
+                label: 'Estado',
+                before: 'Inactivo',
+                after: 'Activo',
+                beforeValue: false,
+                afterValue: true,
+              },
+            ];
+
+          if (
+            assignedIp &&
+            assignedIp !==
+              server.ipAddress
+          ) {
+            changes.push({
+              field: 'ipAddress',
+              label: 'IP',
+              before:
+                server.ipAddress,
+              after:
+                assignedIp,
+              beforeValue:
+                server.ipAddress,
+              afterValue:
+                assignedIp,
+            });
+          }
+
+          await tx.auditLog.create({
+            data: {
+              action: 'ACTIVATE',
+              entityType: 'SERVER',
+              entityId: id,
+              entityName:
+                server.hostname,
+              userId:
+                currentUser.sub,
+              companyId:
+                server.companyId,
+              details: {
+                message:
+                  reservation
+                    ? `Servidor activado con IP ${assignedIp} desde su reserva de aprovisionamiento`
+                    : 'Servidor activado',
+                fields:
+                  changes.map(
+                    (change) =>
+                      change.field,
+                  ),
+                changes:
+                  changes as unknown as Prisma.InputJsonValue,
+                provisioningReservationId:
+                  reservation?.id ??
+                  null,
+              },
+            },
+          });
+        },
+        {
+          isolationLevel:
+            Prisma.TransactionIsolationLevel
+              .Serializable,
+        },
+      );
+    } catch (error) {
+      this.handleUniqueConstraintError(
+        error,
+        assignedIp,
+      );
+
+      if (
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034'
+      ) {
+        throw new ConflictException(
+          'La activación coincidió con otra operación simultánea. Actualiza el servidor e inténtalo nuevamente',
+        );
+      }
+
+      throw error;
+    }
 
     return this.findOne(
       id,

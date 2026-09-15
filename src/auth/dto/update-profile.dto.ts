@@ -24,6 +24,15 @@ export class UpdateProfileDto {
   @MaxLength(254)
   email?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  @Matches(/^(?=.*\d)[+\d\s()-]+$/, {
+    message:
+      'El teléfono solo puede contener números, espacios, +, paréntesis y guiones',
+  })
+  phone?: string;
+
   @ValidateIf(
     (dto: UpdateProfileDto) =>
       dto.password !== undefined,

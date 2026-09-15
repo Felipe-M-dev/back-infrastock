@@ -210,6 +210,11 @@ export class AuthService {
         ? dto.email.trim()
         : undefined;
 
+    const phone =
+      dto.phone !== undefined
+        ? dto.phone.trim()
+        : undefined;
+
     if (
       dto.name !== undefined &&
       !name
@@ -265,6 +270,9 @@ export class AuthService {
         name,
         email:
           email ||
+          undefined,
+        phone:
+          phone ||
           undefined,
         password:
           dto.password ||
@@ -354,6 +362,8 @@ export class AuthService {
         user.name,
       email:
         user.email,
+      phone:
+        user.phone,
       avatarUrl:
         user.avatarUrl ?? null,
       role:

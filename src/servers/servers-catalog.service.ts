@@ -80,6 +80,7 @@ export class ServersCatalogService {
         select: {
           id: true,
           name: true,
+          category: true,
           active: true,
         },
 

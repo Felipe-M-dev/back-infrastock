@@ -4,6 +4,7 @@ import { AuditModule } from '../audit/audit.module.js';
 
 import { PricingController } from './pricing.controller.js';
 import { PricingService } from './pricing.service.js';
+import { ProviderQuotationService } from './provider-quotation.service.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { PricingService } from './pricing.service.js';
 
   providers: [
     PricingService,
+    ProviderQuotationService,
   ],
 })
 export class PricingModule {}

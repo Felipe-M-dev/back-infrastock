@@ -37,6 +37,29 @@ export class NetworksController {
       NetworksService,
   ) {}
 
+  @Get('provisioning-options')
+  @Roles(
+    Role.ADMIN,
+    Role.EDITOR,
+  )
+  findProvisioningOptions() {
+    return this.networksService.findProvisioningOptions();
+  }
+
+  @Get(':id/provisioning-available-ips')
+  @Roles(
+    Role.ADMIN,
+    Role.EDITOR,
+  )
+  findProvisioningAvailableIps(
+    @Param('id', ParseIntPipe)
+    id: number,
+  ) {
+    return this.networksService.findProvisioningAvailableIps(
+      id,
+    );
+  }
+
   @Get()
   @Roles(Role.ADMIN)
   findAll() {

@@ -91,6 +91,7 @@ model User {
   passwordHash String
   name         String
   email        String? @unique
+  phone        String?
   avatarUrl    String?
   role         Role    @default(VIEWER)
   active       Boolean @default(true)
@@ -191,6 +192,8 @@ model Server {
 
   software    ServerSoftware[]
   credentials ServerCredential[]
+
+  provisioningReservation IpReservation?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -341,13 +344,16 @@ model Network {
 }
 
 model IpReservation {
-  id          Int     @id @default(autoincrement())
-  networkId   Int
-  ipAddress   String  @unique @db.Inet
-  description String?
-  active      Boolean @default(true)
+  id                   Int     @id @default(autoincrement())
+  networkId            Int
+  ipAddress            String  @unique @db.Inet
+  description          String?
+  active               Boolean @default(true)
+  provisioningServerId Int?    @unique
 
   network Network @relation(fields: [networkId], references: [id], onDelete: Cascade)
+
+  provisioningServer Server? @relation(fields: [provisioningServerId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

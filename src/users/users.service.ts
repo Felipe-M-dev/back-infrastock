@@ -46,6 +46,7 @@ export class UsersService {
         username: true,
         name: true,
         email: true,
+        phone: true,
         avatarUrl: true,
         role: true,
         active: true,
@@ -104,6 +105,7 @@ export class UsersService {
           username: true,
           name: true,
           email: true,
+          phone: true,
           avatarUrl: true,
           role: true,
           active: true,
@@ -144,6 +146,10 @@ export class UsersService {
 
     const email =
       dto.email?.trim() ||
+      null;
+
+    const phone =
+      dto.phone?.trim() ||
       null;
 
     const passwordHash =
@@ -225,6 +231,7 @@ export class UsersService {
                 passwordHash,
                 name,
                 email,
+                phone,
 
                 role:
                   dto.role,
@@ -303,6 +310,20 @@ export class UsersService {
 
                       after:
                         created.email,
+                    },
+
+                    {
+                      field:
+                        'phone',
+
+                      label:
+                        'Teléfono',
+
+                      before:
+                        null,
+
+                      after:
+                        created.phone,
                     },
 
                     {
@@ -411,6 +432,12 @@ export class UsersService {
           null
         : current.email;
 
+    const normalizedPhone =
+      dto.phone !== undefined
+        ? dto.phone.trim() ||
+          null
+        : current.phone;
+
     let newCompany:
       | {
           id: number;
@@ -491,6 +518,20 @@ export class UsersService {
           current.email,
         after:
           normalizedEmail,
+      });
+    }
+
+    if (
+      normalizedPhone !==
+      current.phone
+    ) {
+      changes.push({
+        field: 'phone',
+        label: 'Teléfono',
+        before:
+          current.phone,
+        after:
+          normalizedPhone,
       });
     }
 
@@ -689,6 +730,9 @@ export class UsersService {
 
                 email:
                   normalizedEmail,
+
+                phone:
+                  normalizedPhone,
 
                 role:
                   dto.role,

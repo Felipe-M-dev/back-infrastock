@@ -9,15 +9,18 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import type { Request } from 'express';
 import type { JwtPayload } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { CreatePricingTariffDto } from './dto/create-pricing-tariff.dto.js';
+import { CreateProviderQuotationDto } from './dto/create-provider-quotation.dto.js';
 import { ManualUfDto } from './dto/manual-uf.dto.js';
 import { UpdatePricingTariffDto } from './dto/update-pricing-tariff.dto.js';
 import { PricingService } from './pricing.service.js';
+import { ProviderQuotationService } from './provider-quotation.service.js';
 
 interface AuthenticatedRequest extends Request {
   user: JwtPayload;
@@ -27,7 +30,41 @@ interface AuthenticatedRequest extends Request {
 export class PricingController {
   constructor(
     private readonly pricingService: PricingService,
+    private readonly providerQuotationService:
+      ProviderQuotationService,
   ) {}
+
+  @Post('provider-quotation')
+  @Roles(
+    Role.ADMIN,
+    Role.EDITOR,
+  )
+  async createProviderQuotation(
+    @Body()
+    dto:
+      CreateProviderQuotationDto,
+    @Req()
+    request:
+      AuthenticatedRequest,
+  ): Promise<StreamableFile> {
+    const result =
+      await this.providerQuotationService.create(
+        dto,
+        request.user,
+      );
+
+    return new StreamableFile(
+      result.buffer,
+      {
+        type:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        disposition:
+          `attachment; filename="${result.filename}"`,
+        length:
+          result.buffer.length,
+      },
+    );
+  }
 
   @Get('summary')
   @Roles(

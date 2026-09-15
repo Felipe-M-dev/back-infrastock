@@ -41,6 +41,145 @@ export class NetworksService {
     private readonly prisma: PrismaService,
   ) {}
 
+  async findProvisioningOptions() {
+    const networks =
+      await this.prisma.network.findMany({
+        where: {
+          active: true,
+        },
+
+        select: {
+          id: true,
+          name: true,
+          cidr: true,
+        },
+
+        orderBy: {
+          name: 'asc',
+        },
+      });
+
+    return networks.map(
+      (network) => {
+        const parsed =
+          this.parseNetworkCidr(
+            network.cidr,
+          );
+
+        return {
+          ...network,
+          firstUsable:
+            numberToIpv4(
+              parsed.firstUsable,
+            ),
+          lastUsable:
+            numberToIpv4(
+              parsed.lastUsable,
+            ),
+        };
+      },
+    );
+  }
+
+  async findProvisioningAvailableIps(
+    networkId: number,
+  ) {
+    const network =
+      await this.getNetwork(
+        networkId,
+      );
+
+    if (!network.active) {
+      throw new ConflictException(
+        'La red/VLAN seleccionada está inactiva',
+      );
+    }
+
+    const parsed =
+      this.parseNetworkCidr(
+        network.cidr,
+      );
+
+    const [servers, reservations] =
+      await Promise.all([
+        this.prisma.server.findMany({
+          where: {
+            ipAddress: {
+              not: null,
+            },
+          },
+
+          select: {
+            ipAddress: true,
+          },
+        }),
+
+        this.prisma.ipReservation.findMany({
+          where: {
+            networkId,
+            active: true,
+          },
+
+          select: {
+            ipAddress: true,
+          },
+        }),
+      ]);
+
+    const unavailableIps =
+      new Set<string>();
+
+    for (const server of servers) {
+      if (server.ipAddress) {
+        unavailableIps.add(
+          server.ipAddress,
+        );
+      }
+    }
+
+    for (
+      const reservation
+      of reservations
+    ) {
+      unavailableIps.add(
+        reservation.ipAddress,
+      );
+    }
+
+    const items: string[] =
+      [];
+
+    for (
+      let value =
+        parsed.firstUsable;
+      value <=
+      parsed.lastUsable;
+      value += 1
+    ) {
+      const ipAddress =
+        numberToIpv4(value);
+
+      if (
+        !unavailableIps.has(
+          ipAddress,
+        )
+      ) {
+        items.push(
+          ipAddress,
+        );
+      }
+    }
+
+    return {
+      network: {
+        id: network.id,
+        name: network.name,
+        cidr: network.cidr,
+      },
+      items,
+    };
+  }
+
   async findAll() {
     const [
       networks,
