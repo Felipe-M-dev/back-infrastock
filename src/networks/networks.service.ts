@@ -23,10 +23,7 @@ interface CurrentUser {
   sub: number;
 }
 
-export type IpInventoryStatus =
-  | 'FREE'
-  | 'USED'
-  | 'RESERVED';
+export type IpInventoryStatus = 'FREE' | 'USED' | 'RESERVED';
 
 export interface IpInventoryFilters {
   search?: string;
@@ -37,136 +34,93 @@ export interface IpInventoryFilters {
 
 @Injectable()
 export class NetworksService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findProvisioningOptions() {
-    const networks =
-      await this.prisma.network.findMany({
+    const networks = await this.prisma.network.findMany({
+      where: {
+        active: true,
+      },
+
+      select: {
+        id: true,
+        name: true,
+        cidr: true,
+      },
+
+      orderBy: {
+        name: 'asc',
+      },
+    });
+
+    return networks.map((network) => {
+      const parsed = this.parseNetworkCidr(network.cidr);
+
+      return {
+        ...network,
+        firstUsable: numberToIpv4(parsed.firstUsable),
+        lastUsable: numberToIpv4(parsed.lastUsable),
+      };
+    });
+  }
+
+  async findProvisioningAvailableIps(networkId: number) {
+    const network = await this.getNetwork(networkId);
+
+    if (!network.active) {
+      throw new ConflictException('La red/VLAN seleccionada está inactiva');
+    }
+
+    const parsed = this.parseNetworkCidr(network.cidr);
+
+    const [servers, reservations] = await Promise.all([
+      this.prisma.server.findMany({
         where: {
+          ipAddress: {
+            not: null,
+          },
+        },
+
+        select: {
+          ipAddress: true,
+        },
+      }),
+
+      this.prisma.ipReservation.findMany({
+        where: {
+          networkId,
           active: true,
         },
 
         select: {
-          id: true,
-          name: true,
-          cidr: true,
+          ipAddress: true,
         },
+      }),
+    ]);
 
-        orderBy: {
-          name: 'asc',
-        },
-      });
-
-    return networks.map(
-      (network) => {
-        const parsed =
-          this.parseNetworkCidr(
-            network.cidr,
-          );
-
-        return {
-          ...network,
-          firstUsable:
-            numberToIpv4(
-              parsed.firstUsable,
-            ),
-          lastUsable:
-            numberToIpv4(
-              parsed.lastUsable,
-            ),
-        };
-      },
-    );
-  }
-
-  async findProvisioningAvailableIps(
-    networkId: number,
-  ) {
-    const network =
-      await this.getNetwork(
-        networkId,
-      );
-
-    if (!network.active) {
-      throw new ConflictException(
-        'La red/VLAN seleccionada está inactiva',
-      );
-    }
-
-    const parsed =
-      this.parseNetworkCidr(
-        network.cidr,
-      );
-
-    const [servers, reservations] =
-      await Promise.all([
-        this.prisma.server.findMany({
-          where: {
-            ipAddress: {
-              not: null,
-            },
-          },
-
-          select: {
-            ipAddress: true,
-          },
-        }),
-
-        this.prisma.ipReservation.findMany({
-          where: {
-            networkId,
-            active: true,
-          },
-
-          select: {
-            ipAddress: true,
-          },
-        }),
-      ]);
-
-    const unavailableIps =
-      new Set<string>();
+    const unavailableIps = new Set<string>();
 
     for (const server of servers) {
       if (server.ipAddress) {
-        unavailableIps.add(
-          server.ipAddress,
-        );
+        unavailableIps.add(server.ipAddress);
       }
     }
 
-    for (
-      const reservation
-      of reservations
-    ) {
-      unavailableIps.add(
-        reservation.ipAddress,
-      );
+    for (const reservation of reservations) {
+      unavailableIps.add(reservation.ipAddress);
     }
 
-    const items: string[] =
-      [];
+    const items: string[] = [];
 
     for (
-      let value =
-        parsed.firstUsable;
-      value <=
-      parsed.lastUsable;
+      let value = parsed.firstUsable;
+      value <= parsed.lastUsable;
       value += 1
     ) {
-      const ipAddress =
-        numberToIpv4(value);
+      const ipAddress = numberToIpv4(value);
 
-      if (
-        !unavailableIps.has(
-          ipAddress,
-        )
-      ) {
-        items.push(
-          ipAddress,
-        );
+      if (!unavailableIps.has(ipAddress)) {
+        items.push(ipAddress);
       }
     }
 
@@ -181,16 +135,9 @@ export class NetworksService {
   }
 
   async findAll() {
-    const [
-      networks,
-      servers,
-      reservations,
-    ] = await Promise.all([
+    const [networks, servers, reservations] = await Promise.all([
       this.prisma.network.findMany({
-        orderBy: [
-          { active: 'desc' },
-          { name: 'asc' },
-        ],
+        orderBy: [{ active: 'desc' }, { name: 'asc' }],
       }),
       this.prisma.server.findMany({
         where: {
@@ -226,15 +173,9 @@ export class NetworksService {
           .filter(
             (server) =>
               server.ipAddress &&
-              isUsableIpv4InCidr(
-                server.ipAddress,
-                network.cidr,
-              ),
+              isUsableIpv4InCidr(server.ipAddress, network.cidr),
           )
-          .map(
-            (server) =>
-              server.ipAddress as string,
-          ),
+          .map((server) => server.ipAddress as string),
       );
 
       const reservedIps = new Set(
@@ -244,28 +185,19 @@ export class NetworksService {
               reservation.networkId === network.id &&
               !usedIps.has(reservation.ipAddress),
           )
-          .map(
-            (reservation) =>
-              reservation.ipAddress,
-          ),
+          .map((reservation) => reservation.ipAddress),
       );
 
       const used = usedIps.size;
       const reserved = reservedIps.size;
-      const free = Math.max(
-        0,
-        parsed.totalUsable - used - reserved,
-      );
+      const free = Math.max(0, parsed.totalUsable - used - reserved);
 
       return {
         ...network,
         range: {
-          firstUsable:
-            numberToIpv4(parsed.firstUsable),
-          lastUsable:
-            numberToIpv4(parsed.lastUsable),
-          totalUsable:
-            parsed.totalUsable,
+          firstUsable: numberToIpv4(parsed.firstUsable),
+          lastUsable: numberToIpv4(parsed.lastUsable),
+          totalUsable: parsed.totalUsable,
         },
         totals: {
           used,
@@ -276,94 +208,73 @@ export class NetworksService {
     });
   }
 
-  async findIpInventory(
-    networkId: number,
-    filters: IpInventoryFilters = {},
-  ) {
+  async findIpInventory(networkId: number, filters: IpInventoryFilters = {}) {
     const network = await this.getNetwork(networkId);
     const parsed = this.parseNetworkCidr(network.cidr);
     const page = Math.max(1, filters.page ?? 1);
-    const pageSize = Math.min(
-      250,
-      Math.max(10, filters.pageSize ?? 100),
-    );
-    const normalizedSearch =
-      filters.search?.trim().toLowerCase() ?? '';
+    const pageSize = Math.min(250, Math.max(10, filters.pageSize ?? 100));
+    const normalizedSearch = filters.search?.trim().toLowerCase() ?? '';
 
-    const [servers, reservations] =
-      await Promise.all([
-        this.prisma.server.findMany({
-          where: {
-            ipAddress: {
-              not: null,
+    const [servers, reservations] = await Promise.all([
+      this.prisma.server.findMany({
+        where: {
+          ipAddress: {
+            not: null,
+          },
+        },
+        select: {
+          id: true,
+          hostname: true,
+          ipAddress: true,
+          active: true,
+          company: {
+            select: {
+              id: true,
+              name: true,
             },
           },
-          select: {
-            id: true,
-            hostname: true,
-            ipAddress: true,
-            active: true,
-            company: {
-              select: {
-                id: true,
-                name: true,
-              },
+        },
+      }),
+      this.prisma.ipReservation.findMany({
+        where: {
+          networkId,
+          active: true,
+        },
+        select: {
+          id: true,
+          ipAddress: true,
+          description: true,
+          provisioningServer: {
+            select: {
+              id: true,
+              hostname: true,
+              active: true,
             },
           },
-        }),
-        this.prisma.ipReservation.findMany({
-          where: {
-            networkId,
-            active: true,
-          },
-          select: {
-            id: true,
-            ipAddress: true,
-            description: true,
-          },
-        }),
-      ]);
+        },
+      }),
+    ]);
 
-    const activeByIp = new Map<
-      string,
-      (typeof servers)[number]
-    >();
-    const inactiveByIp = new Map<
-      string,
-      (typeof servers)[number]
-    >();
+    const activeByIp = new Map<string, (typeof servers)[number]>();
+    const inactiveByIp = new Map<string, (typeof servers)[number]>();
 
     for (const server of servers) {
       if (
         !server.ipAddress ||
-        !isUsableIpv4InCidr(
-          server.ipAddress,
-          network.cidr,
-        )
+        !isUsableIpv4InCidr(server.ipAddress, network.cidr)
       ) {
         continue;
       }
 
       if (server.active) {
-        activeByIp.set(
-          server.ipAddress,
-          server,
-        );
-      } else if (
-        !inactiveByIp.has(server.ipAddress)
-      ) {
-        inactiveByIp.set(
-          server.ipAddress,
-          server,
-        );
+        activeByIp.set(server.ipAddress, server);
+      } else if (!inactiveByIp.has(server.ipAddress)) {
+        inactiveByIp.set(server.ipAddress, server);
       }
     }
 
     const reservationByIp = new Map(
-      reservations.map((reservation) => [
-        reservation.ipAddress,
-        reservation,
-      ]),
+      reservations.map((reservation) => [reservation.ipAddress, reservation]),
     );
 
     const items = [] as Array<{
@@ -388,6 +299,11 @@ export class NetworksService {
       reservation: null | {
         id: number;
         description: string | null;
+        provisioningServer: null | {
+          id: number;
+          hostname: string;
+          active: boolean;
+        };
       };
       requiresRelease: boolean;
     }>;
@@ -419,10 +335,7 @@ export class NetworksService {
         free += 1;
       }
 
-      if (
-        filters.status &&
-        status !== filters.status
-      ) {
+      if (filters.status && status !== filters.status) {
         continue;
       }
 
@@ -433,15 +346,13 @@ export class NetworksService {
         previousServer?.hostname,
         previousServer?.company?.name,
         reservation?.description,
+        reservation?.provisioningServer?.hostname,
       ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
 
-      if (
-        normalizedSearch &&
-        !searchText.includes(normalizedSearch)
-      ) {
+      if (normalizedSearch && !searchText.includes(normalizedSearch)) {
         continue;
       }
 
@@ -466,36 +377,25 @@ export class NetworksService {
           ? {
               id: reservation.id,
               description: reservation.description,
+              provisioningServer: reservation.provisioningServer,
             }
           : null,
-        requiresRelease:
-          status === 'FREE' &&
-          Boolean(previousServer),
+        requiresRelease: status === 'FREE' && Boolean(previousServer),
       });
     }
 
     const filtered = items.length;
-    const totalPages = Math.max(
-      1,
-      Math.ceil(filtered / pageSize),
-    );
-    const effectivePage = Math.min(
-      page,
-      totalPages,
-    );
-    const start =
-      (effectivePage - 1) * pageSize;
+    const totalPages = Math.max(1, Math.ceil(filtered / pageSize));
+    const effectivePage = Math.min(page, totalPages);
+    const start = (effectivePage - 1) * pageSize;
 
     return {
       network: {
         ...network,
         range: {
-          firstUsable:
-            numberToIpv4(parsed.firstUsable),
-          lastUsable:
-            numberToIpv4(parsed.lastUsable),
-          totalUsable:
-            parsed.totalUsable,
+          firstUsable: numberToIpv4(parsed.firstUsable),
+          lastUsable: numberToIpv4(parsed.lastUsable),
+          totalUsable: parsed.totalUsable,
         },
       },
       totals: {
@@ -511,70 +411,57 @@ export class NetworksService {
       pageSize,
       totalPages,
       filtered,
-      items: items.slice(
-        start,
-        start + pageSize,
-      ),
+      items: items.slice(start, start + pageSize),
     };
   }
 
-  async create(
-    dto: CreateNetworkDto,
-    currentUser: CurrentUser,
-  ) {
+  async create(dto: CreateNetworkDto, currentUser: CurrentUser) {
     const name = dto.name.trim();
     const parsed = this.parseNetworkCidr(dto.cidr);
 
     if (!name) {
-      throw new BadRequestException(
-        'El nombre de la red/VLAN es obligatorio',
-      );
+      throw new BadRequestException('El nombre de la red/VLAN es obligatorio');
     }
 
     try {
-      const created =
-        await this.prisma.$transaction(
-          async (tx) => {
-            await this.assertNetworkUniqueAndNonOverlapping(
+      const created = await this.prisma.$transaction(
+        async (tx) => {
+          await this.assertNetworkUniqueAndNonOverlapping(
+            name,
+            parsed.cidr,
+            undefined,
+            tx,
+          );
+
+          const network = await tx.network.create({
+            data: {
               name,
-              parsed.cidr,
-              undefined,
-              tx,
-            );
+              cidr: parsed.cidr,
+              description: dto.description?.trim() || null,
+              active: dto.active ?? true,
+            },
+          });
 
-            const network =
-              await tx.network.create({
-                data: {
-                  name,
-                  cidr: parsed.cidr,
-                  description:
-                    dto.description?.trim() || null,
-                  active: dto.active ?? true,
-                },
-              });
+          await tx.auditLog.create({
+            data: {
+              action: 'CREATE',
+              entityType: 'NETWORK',
+              entityId: network.id,
+              entityName: network.name,
+              userId: currentUser.sub,
+              details: this.toInputJsonValue({
+                message: 'Red/VLAN creada',
+                cidr: network.cidr,
+              }),
+            },
+          });
 
-            await tx.auditLog.create({
-              data: {
-                action: 'CREATE',
-                entityType: 'NETWORK',
-                entityId: network.id,
-                entityName: network.name,
-                userId: currentUser.sub,
-                details: this.toInputJsonValue({
-                  message: 'Red/VLAN creada',
-                  cidr: network.cidr,
-                }),
-              },
-            });
-
-            return network;
-          },
-          {
-            isolationLevel:
-              Prisma.TransactionIsolationLevel
-                .Serializable,
-          },
-        );
+          return network;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
 
       return created;
     } catch (error) {
@@ -583,19 +470,13 @@ export class NetworksService {
     }
   }
 
-  async update(
-    id: number,
-    dto: UpdateNetworkDto,
-    currentUser: CurrentUser,
-  ) {
+  async update(id: number, dto: UpdateNetworkDto, currentUser: CurrentUser) {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          const existing =
-            await this.getNetwork(id, tx);
+          const existing = await this.getNetwork(id, tx);
 
-          const name =
-            dto.name?.trim() ?? existing.name;
+          const name = dto.name?.trim() ?? existing.name;
 
           if (!name) {
             throw new BadRequestException(
@@ -603,10 +484,7 @@ export class NetworksService {
             );
           }
 
-          const parsed =
-            this.parseNetworkCidr(
-              dto.cidr ?? existing.cidr,
-            );
+          const parsed = this.parseNetworkCidr(dto.cidr ?? existing.cidr);
 
           await this.assertNetworkUniqueAndNonOverlapping(
             name,
@@ -615,49 +493,38 @@ export class NetworksService {
             tx,
           );
 
-          if (
-            parsed.cidr !== existing.cidr
-          ) {
-            const activeServers =
-              await tx.server.findMany({
-                where: {
-                  active: true,
-                  ipAddress: {
-                    not: null,
-                  },
+          if (parsed.cidr !== existing.cidr) {
+            const activeServers = await tx.server.findMany({
+              where: {
+                active: true,
+                ipAddress: {
+                  not: null,
                 },
-                select: {
-                  id: true,
-                  hostname: true,
-                  ipAddress: true,
-                },
-              });
+              },
+              select: {
+                id: true,
+                hostname: true,
+                ipAddress: true,
+              },
+            });
 
-            const activeReservations =
-              await tx.ipReservation.findMany({
-                where: {
-                  networkId: id,
-                  active: true,
-                },
-                select: {
-                  id: true,
-                  ipAddress: true,
-                },
-              });
+            const activeReservations = await tx.ipReservation.findMany({
+              where: {
+                networkId: id,
+                active: true,
+              },
+              select: {
+                id: true,
+                ipAddress: true,
+              },
+            });
 
-            const serverOutside =
-              activeServers.find(
-                (server) =>
-                  server.ipAddress &&
-                  isUsableIpv4InCidr(
-                    server.ipAddress,
-                    existing.cidr,
-                  ) &&
-                  !isUsableIpv4InCidr(
-                    server.ipAddress,
-                    parsed.cidr,
-                  ),
-              );
+            const serverOutside = activeServers.find(
+              (server) =>
+                server.ipAddress &&
+                isUsableIpv4InCidr(server.ipAddress, existing.cidr) &&
+                !isUsableIpv4InCidr(server.ipAddress, parsed.cidr),
+            );
 
             if (serverOutside?.ipAddress) {
               throw new ConflictException(
@@ -665,14 +532,10 @@ export class NetworksService {
               );
             }
 
-            const reservationOutside =
-              activeReservations.find(
-                (reservation) =>
-                  !isUsableIpv4InCidr(
-                    reservation.ipAddress,
-                    parsed.cidr,
-                  ),
-              );
+            const reservationOutside = activeReservations.find(
+              (reservation) =>
+                !isUsableIpv4InCidr(reservation.ipAddress, parsed.cidr),
+            );
 
             if (reservationOutside) {
               throw new ConflictException(
@@ -681,20 +544,18 @@ export class NetworksService {
             }
           }
 
-          const updated =
-            await tx.network.update({
-              where: { id },
-              data: {
-                name,
-                cidr: parsed.cidr,
-                description:
-                  dto.description !== undefined
-                    ? dto.description.trim() || null
-                    : existing.description,
-                active:
-                  dto.active ?? existing.active,
-              },
-            });
+          const updated = await tx.network.update({
+            where: { id },
+            data: {
+              name,
+              cidr: parsed.cidr,
+              description:
+                dto.description !== undefined
+                  ? dto.description.trim() || null
+                  : existing.description,
+              active: dto.active ?? existing.active,
+            },
+          });
 
           await tx.auditLog.create({
             data: {
@@ -724,9 +585,7 @@ export class NetworksService {
           return updated;
         },
         {
-          isolationLevel:
-            Prisma.TransactionIsolationLevel
-              .Serializable,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         },
       );
     } catch (error) {
@@ -735,59 +594,48 @@ export class NetworksService {
     }
   }
 
-  async remove(
-    id: number,
-    currentUser: CurrentUser,
-  ) {
+  async remove(id: number, currentUser: CurrentUser) {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          const existing =
-            await this.getNetwork(id, tx);
+          const existing = await this.getNetwork(id, tx);
 
-          const servers =
-            await tx.server.findMany({
-              where: {
-                ipAddress: {
-                  not: null,
-                },
+          const servers = await tx.server.findMany({
+            where: {
+              ipAddress: {
+                not: null,
               },
-              select: {
-                id: true,
-                hostname: true,
-                ipAddress: true,
-                active: true,
-              },
-            });
+            },
+            select: {
+              id: true,
+              hostname: true,
+              ipAddress: true,
+              active: true,
+            },
+          });
 
-          const activeReservations =
-            await tx.ipReservation.findMany({
-              where: {
-                networkId: id,
-                active: true,
-              },
-              select: {
-                id: true,
-                ipAddress: true,
-              },
-            });
+          const activeReservations = await tx.ipReservation.findMany({
+            where: {
+              networkId: id,
+              active: true,
+            },
+            select: {
+              id: true,
+              ipAddress: true,
+            },
+          });
 
-          const reservationCount =
-            await tx.ipReservation.count({
-              where: {
-                networkId: id,
-              },
-            });
+          const reservationCount = await tx.ipReservation.count({
+            where: {
+              networkId: id,
+            },
+          });
 
-          const linkedServer =
-            servers.find(
-              (server) =>
-                server.ipAddress &&
-                isUsableIpv4InCidr(
-                  server.ipAddress,
-                  existing.cidr,
-                ),
-            );
+          const linkedServer = servers.find(
+            (server) =>
+              server.ipAddress &&
+              isUsableIpv4InCidr(server.ipAddress, existing.cidr),
+          );
 
           if (linkedServer?.ipAddress) {
             throw new ConflictException(
@@ -796,8 +644,7 @@ export class NetworksService {
           }
 
           if (activeReservations.length > 0) {
-            const firstReservation =
-              activeReservations[0];
+            const firstReservation = activeReservations[0];
 
             throw new ConflictException(
               `No se puede eliminar la red/VLAN: existen ${activeReservations.length} reserva(s) IP activa(s). Libera primero la reserva ${firstReservation.ipAddress}`,
@@ -822,8 +669,7 @@ export class NetworksService {
                 cidr: existing.cidr,
                 description: existing.description,
                 active: existing.active,
-                removedInactiveReservations:
-                  reservationCount,
+                removedInactiveReservations: reservationCount,
               }),
             },
           });
@@ -836,9 +682,7 @@ export class NetworksService {
           };
         },
         {
-          isolationLevel:
-            Prisma.TransactionIsolationLevel
-              .Serializable,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         },
       );
     } catch (error) {
@@ -857,11 +701,7 @@ export class NetworksService {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          const network =
-            await this.getNetwork(
-              networkId,
-              tx,
-            );
+          const network = await this.getNetwork(networkId, tx);
 
           if (!network.active) {
             throw new ConflictException(
@@ -869,27 +709,21 @@ export class NetworksService {
             );
           }
 
-          if (
-            !isUsableIpv4InCidr(
-              ipAddress,
-              network.cidr,
-            )
-          ) {
+          if (!isUsableIpv4InCidr(ipAddress, network.cidr)) {
             throw new BadRequestException(
               `La IP ${ipAddress} no es un host utilizable de ${network.cidr}`,
             );
           }
 
-          const activeServer =
-            await tx.server.findFirst({
-              where: {
-                active: true,
-                ipAddress,
-              },
-              select: {
-                hostname: true,
-              },
-            });
+          const activeServer = await tx.server.findFirst({
+            where: {
+              active: true,
+              ipAddress,
+            },
+            select: {
+              hostname: true,
+            },
+          });
 
           if (activeServer) {
             throw new ConflictException(
@@ -897,48 +731,42 @@ export class NetworksService {
             );
           }
 
-          const existing =
-            await tx.ipReservation.findUnique({
-              where: {
-                ipAddress,
-              },
-            });
+          const existing = await tx.ipReservation.findUnique({
+            where: {
+              ipAddress,
+            },
+          });
 
-          const reservation =
-            existing
-              ? await tx.ipReservation.update({
-                  where: {
-                    id: existing.id,
-                  },
-                  data: {
-                    networkId,
-                    description:
-                      dto.description?.trim() || null,
-                    active: true,
-                  },
-                })
-              : await tx.ipReservation.create({
-                  data: {
-                    networkId,
-                    ipAddress,
-                    description:
-                      dto.description?.trim() || null,
-                  },
-                });
+          const reservation = existing
+            ? await tx.ipReservation.update({
+                where: {
+                  id: existing.id,
+                },
+                data: {
+                  networkId,
+                  description: dto.description?.trim() || null,
+                  active: true,
+                },
+              })
+            : await tx.ipReservation.create({
+                data: {
+                  networkId,
+                  ipAddress,
+                  description: dto.description?.trim() || null,
+                },
+              });
 
-          const action =
-            existing
-              ? existing.active
-                ? 'UPDATE'
-                : 'ACTIVATE'
-              : 'CREATE';
+          const action = existing
+            ? existing.active
+              ? 'UPDATE'
+              : 'ACTIVATE'
+            : 'CREATE';
 
-          const message =
-            existing
-              ? existing.active
-                ? 'Reserva IP actualizada'
-                : 'Reserva IP reactivada'
-              : 'IP reservada';
+          const message = existing
+            ? existing.active
+              ? 'Reserva IP actualizada'
+              : 'Reserva IP reactivada'
+            : 'IP reservada';
 
           await tx.auditLog.create({
             data: {
@@ -950,8 +778,7 @@ export class NetworksService {
               details: this.toInputJsonValue({
                 message,
                 networkId,
-                description:
-                  reservation.description,
+                description: reservation.description,
               }),
             },
           });
@@ -959,9 +786,7 @@ export class NetworksService {
           return reservation;
         },
         {
-          isolationLevel:
-            Prisma.TransactionIsolationLevel
-              .Serializable,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         },
       );
     } catch (error) {
@@ -970,42 +795,48 @@ export class NetworksService {
     }
   }
 
-  async releaseReservation(
-    reservationId: number,
-    currentUser: CurrentUser,
-  ) {
+  async releaseReservation(reservationId: number, currentUser: CurrentUser) {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          const reservation =
-            await tx.ipReservation.findUnique({
-              where: {
-                id: reservationId,
+          const reservation = await tx.ipReservation.findUnique({
+            where: {
+              id: reservationId,
+            },
+            include: {
+              network: true,
+              provisioningServer: {
+                select: {
+                  id: true,
+                  hostname: true,
+                  active: true,
+                },
               },
-              include: {
-                network: true,
-              },
-            });
+            },
+          });
 
           if (!reservation) {
-            throw new NotFoundException(
-              'Reserva IP no encontrada',
-            );
+            throw new NotFoundException('Reserva IP no encontrada');
           }
 
           if (!reservation.active) {
             return reservation;
           }
 
-          const updated =
-            await tx.ipReservation.update({
-              where: {
-                id: reservation.id,
-              },
-              data: {
-                active: false,
-              },
-            });
+          if (reservation.provisioningServer) {
+            throw new ConflictException(
+              `La IP ${reservation.ipAddress} está vinculada al servidor pendiente ${reservation.provisioningServer.hostname}. Elimina el servidor para liberar la IP`,
+            );
+          }
+
+          const updated = await tx.ipReservation.update({
+            where: {
+              id: reservation.id,
+            },
+            data: {
+              active: false,
+            },
+          });
 
           await tx.auditLog.create({
             data: {
@@ -1016,10 +847,8 @@ export class NetworksService {
               userId: currentUser.sub,
               details: this.toInputJsonValue({
                 message: 'Reserva IP liberada',
-                networkId:
-                  reservation.networkId,
-                network:
-                  reservation.network.name,
+                networkId: reservation.networkId,
+                network: reservation.network.name,
               }),
             },
           });
@@ -1027,9 +856,7 @@ export class NetworksService {
           return updated;
         },
         {
-          isolationLevel:
-            Prisma.TransactionIsolationLevel
-              .Serializable,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         },
       );
     } catch (error) {
@@ -1046,33 +873,23 @@ export class NetworksService {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          const network =
-            await this.getNetwork(
-              networkId,
-              tx,
-            );
+          const network = await this.getNetwork(networkId, tx);
 
-          if (
-            !isUsableIpv4InCidr(
-              ipAddress,
-              network.cidr,
-            )
-          ) {
+          if (!isUsableIpv4InCidr(ipAddress, network.cidr)) {
             throw new BadRequestException(
               'La IP no pertenece al rango utilizable de la red',
             );
           }
 
-          const activeServer =
-            await tx.server.findFirst({
-              where: {
-                active: true,
-                ipAddress,
-              },
-              select: {
-                hostname: true,
-              },
-            });
+          const activeServer = await tx.server.findFirst({
+            where: {
+              active: true,
+              ipAddress,
+            },
+            select: {
+              hostname: true,
+            },
+          });
 
           if (activeServer) {
             throw new ConflictException(
@@ -1080,24 +897,22 @@ export class NetworksService {
             );
           }
 
-          const inactiveServer =
-            await tx.server.findFirst({
-              where: {
-                active: false,
-                ipAddress,
-              },
-              select: {
-                id: true,
-                hostname: true,
-                companyId: true,
-              },
-            });
+          const inactiveServer = await tx.server.findFirst({
+            where: {
+              active: false,
+              ipAddress,
+            },
+            select: {
+              id: true,
+              hostname: true,
+              companyId: true,
+            },
+          });
 
           if (!inactiveServer) {
             return {
               released: false,
-              message:
-                'La IP ya no tiene vínculo con un servidor inactivo',
+              message: 'La IP ya no tiene vínculo con un servidor inactivo',
             };
           }
 
@@ -1116,14 +931,11 @@ export class NetworksService {
               action: 'UPDATE',
               entityType: 'SERVER',
               entityId: inactiveServer.id,
-              entityName:
-                inactiveServer.hostname,
+              entityName: inactiveServer.hostname,
               userId: currentUser.sub,
-              companyId:
-                inactiveServer.companyId,
+              companyId: inactiveServer.companyId,
               details: this.toInputJsonValue({
-                message:
-                  'IP histórica liberada desde administración de IPs',
+                message: 'IP histórica liberada desde administración de IPs',
                 fields: ['ipAddress'],
                 changes: [
                   {
@@ -1141,17 +953,13 @@ export class NetworksService {
 
           return {
             released: true,
-            serverId:
-              inactiveServer.id,
-            hostname:
-              inactiveServer.hostname,
+            serverId: inactiveServer.id,
+            hostname: inactiveServer.hostname,
             ipAddress,
           };
         },
         {
-          isolationLevel:
-            Prisma.TransactionIsolationLevel
-              .Serializable,
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         },
       );
     } catch (error) {
@@ -1160,24 +968,17 @@ export class NetworksService {
     }
   }
 
-  private async getNetwork(
-    id: number,
-    tx?: Prisma.TransactionClient,
-  ) {
-    const client =
-      tx ?? this.prisma;
+  private async getNetwork(id: number, tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
 
-    const network =
-      await client.network.findUnique({
-        where: {
-          id,
-        },
-      });
+    const network = await client.network.findUnique({
+      where: {
+        id,
+      },
+    });
 
     if (!network) {
-      throw new NotFoundException(
-        'Red/VLAN no encontrada',
-      );
+      throw new NotFoundException('Red/VLAN no encontrada');
     }
 
     return network;
@@ -1188,9 +989,7 @@ export class NetworksService {
       return parseIpv4Cidr(cidr);
     } catch (error) {
       throw new BadRequestException(
-        error instanceof Error
-          ? error.message
-          : 'CIDR IPv4 inválido',
+        error instanceof Error ? error.message : 'CIDR IPv4 inválido',
       );
     }
   }
@@ -1201,46 +1000,34 @@ export class NetworksService {
     excludeId?: number,
     tx?: Prisma.TransactionClient,
   ) {
-    const client =
-      tx ?? this.prisma;
+    const client = tx ?? this.prisma;
 
-    const networks =
-      await client.network.findMany({
-        where: excludeId
-          ? {
-              NOT: {
-                id: excludeId,
-              },
-            }
-          : undefined,
-        select: {
-          id: true,
-          name: true,
-          cidr: true,
-        },
-      });
+    const networks = await client.network.findMany({
+      where: excludeId
+        ? {
+            NOT: {
+              id: excludeId,
+            },
+          }
+        : undefined,
+      select: {
+        id: true,
+        name: true,
+        cidr: true,
+      },
+    });
 
-    const duplicateName =
-      networks.find(
-        (network) =>
-          network.name.toLowerCase() ===
-          name.toLowerCase(),
-      );
+    const duplicateName = networks.find(
+      (network) => network.name.toLowerCase() === name.toLowerCase(),
+    );
 
     if (duplicateName) {
-      throw new ConflictException(
-        'Ya existe una red/VLAN con ese nombre',
-      );
+      throw new ConflictException('Ya existe una red/VLAN con ese nombre');
     }
 
-    const overlap =
-      networks.find(
-        (network) =>
-          cidrsOverlap(
-            network.cidr,
-            cidr,
-          ),
-      );
+    const overlap = networks.find((network) =>
+      cidrsOverlap(network.cidr, cidr),
+    );
 
     if (overlap) {
       throw new ConflictException(
@@ -1249,32 +1036,20 @@ export class NetworksService {
     }
   }
 
-  private toInputJsonValue(
-    value: unknown,
-  ): Prisma.InputJsonValue {
-    const serialized =
-      JSON.stringify(value);
+  private toInputJsonValue(value: unknown): Prisma.InputJsonValue {
+    const serialized = JSON.stringify(value);
 
-    if (
-      serialized === undefined
-    ) {
+    if (serialized === undefined) {
       throw new BadRequestException(
         'Los detalles de auditoría no son serializables',
       );
     }
 
-    return JSON.parse(
-      serialized,
-    ) as Prisma.InputJsonValue;
+    return JSON.parse(serialized) as Prisma.InputJsonValue;
   }
 
-  private handleNetworkWriteError(
-    error: unknown,
-  ): void {
-    if (
-      error instanceof
-        Prisma.PrismaClientKnownRequestError
-    ) {
+  private handleNetworkWriteError(error: unknown): void {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
         throw new ConflictException(
           'Ya existe una red/VLAN o reserva con un valor único en uso',
