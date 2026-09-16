@@ -5,6 +5,7 @@ import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { RolesGuard } from './auth/roles.guard.js';
+import { CatalogMaintenanceModule } from './catalog-maintenance/catalog-maintenance.module.js';
 import { CompaniesModule } from './companies/companies.module.js';
 import { CredentialsModule } from './credentials/credentials.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
@@ -25,6 +26,7 @@ import { UsersModule } from './users/users.module.js';
     ServersModule,
     OperatingSystemsModule,
     SoftwareModule,
+    CatalogMaintenanceModule,
     DashboardModule,
     CompaniesModule,
     PricingModule,

@@ -929,6 +929,42 @@ export class EndOfLifeService {
         softwareName,
       );
 
+    return this.analyzeProductVersions(
+      product,
+      installedVersions,
+    );
+  }
+
+  async analyzeOperatingSystem(
+    operatingSystemName: string,
+    installedVersions: string[],
+    configuredProductKey?:
+      | string
+      | null,
+  ) {
+    const configured =
+      normalizeProductKey(
+        configuredProductKey,
+      );
+
+    const product =
+      configured ??
+      (
+        await this.resolveProductReference(
+          operatingSystemName,
+        )
+      ).productKey;
+
+    return this.analyzeProductVersions(
+      product,
+      installedVersions,
+    );
+  }
+
+  private async analyzeProductVersions(
+    product: string | null,
+    installedVersions: string[],
+  ) {
     if (!product) {
       return {
         provider:

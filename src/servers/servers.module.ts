@@ -8,6 +8,8 @@ import { ServerImportsService } from '../server-imports/server-imports.service.j
 
 import { EndOfLifeController } from './endoflife.controller.js';
 import { EndOfLifeService } from './endoflife.service.js';
+import { OperatingSystemLifecycleController } from './operating-system-lifecycle.controller.js';
+import { OperatingSystemLifecycleService } from './operating-system-lifecycle.service.js';
 import { ServersCatalogService } from './servers-catalog.service.js';
 import { ServersController } from './servers.controller.js';
 import { ServersService } from './servers.service.js';
@@ -20,6 +22,7 @@ import { ServersService } from './servers.service.js';
   controllers: [
     ServersController,
     EndOfLifeController,
+    OperatingSystemLifecycleController,
     NetworksController,
     ServerImportsController,
   ],
@@ -28,6 +31,7 @@ import { ServersService } from './servers.service.js';
     ServersService,
     ServersCatalogService,
     EndOfLifeService,
+    OperatingSystemLifecycleService,
     NetworksService,
     ServerImportsService,
   ],

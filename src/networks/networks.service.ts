@@ -14,7 +14,7 @@ import { CreateNetworkDto } from './dto/create-network.dto.js';
 import { UpdateNetworkDto } from './dto/update-network.dto.js';
 import {
   cidrsOverlap,
-  isUsableIpv4InCidr,
+  isIpv4InCidr,
   numberToIpv4,
   parseIpv4Cidr,
 } from './ipv4-cidr.js';
@@ -173,7 +173,7 @@ export class NetworksService {
           .filter(
             (server) =>
               server.ipAddress &&
-              isUsableIpv4InCidr(server.ipAddress, network.cidr),
+              isIpv4InCidr(server.ipAddress, network.cidr),
           )
           .map((server) => server.ipAddress as string),
       );
@@ -190,13 +190,14 @@ export class NetworksService {
 
       const used = usedIps.size;
       const reserved = reservedIps.size;
-      const free = Math.max(0, parsed.totalUsable - used - reserved);
+      const totalManaged = parsed.broadcast - parsed.network + 1;
+      const free = Math.max(0, totalManaged - used - reserved);
 
       return {
         ...network,
         range: {
-          firstUsable: numberToIpv4(parsed.firstUsable),
-          lastUsable: numberToIpv4(parsed.lastUsable),
+          firstUsable: numberToIpv4(parsed.network),
+          lastUsable: numberToIpv4(parsed.broadcast),
           totalUsable: parsed.totalUsable,
         },
         totals: {
@@ -261,7 +262,7 @@ export class NetworksService {
     for (const server of servers) {
       if (
         !server.ipAddress ||
-        !isUsableIpv4InCidr(server.ipAddress, network.cidr)
+        !isIpv4InCidr(server.ipAddress, network.cidr)
       ) {
         continue;
       }
@@ -313,8 +314,8 @@ export class NetworksService {
     let free = 0;
 
     for (
-      let value = parsed.firstUsable;
-      value <= parsed.lastUsable;
+      let value = parsed.network;
+      value <= parsed.broadcast;
       value += 1
     ) {
       const ipAddress = numberToIpv4(value);
@@ -393,8 +394,8 @@ export class NetworksService {
       network: {
         ...network,
         range: {
-          firstUsable: numberToIpv4(parsed.firstUsable),
-          lastUsable: numberToIpv4(parsed.lastUsable),
+          firstUsable: numberToIpv4(parsed.network),
+          lastUsable: numberToIpv4(parsed.broadcast),
           totalUsable: parsed.totalUsable,
         },
       },
@@ -522,8 +523,8 @@ export class NetworksService {
             const serverOutside = activeServers.find(
               (server) =>
                 server.ipAddress &&
-                isUsableIpv4InCidr(server.ipAddress, existing.cidr) &&
-                !isUsableIpv4InCidr(server.ipAddress, parsed.cidr),
+                isIpv4InCidr(server.ipAddress, existing.cidr) &&
+                !isIpv4InCidr(server.ipAddress, parsed.cidr),
             );
 
             if (serverOutside?.ipAddress) {
@@ -534,7 +535,7 @@ export class NetworksService {
 
             const reservationOutside = activeReservations.find(
               (reservation) =>
-                !isUsableIpv4InCidr(reservation.ipAddress, parsed.cidr),
+                !isIpv4InCidr(reservation.ipAddress, parsed.cidr),
             );
 
             if (reservationOutside) {
@@ -634,7 +635,7 @@ export class NetworksService {
           const linkedServer = servers.find(
             (server) =>
               server.ipAddress &&
-              isUsableIpv4InCidr(server.ipAddress, existing.cidr),
+              isIpv4InCidr(server.ipAddress, existing.cidr),
           );
 
           if (linkedServer?.ipAddress) {
@@ -709,9 +710,9 @@ export class NetworksService {
             );
           }
 
-          if (!isUsableIpv4InCidr(ipAddress, network.cidr)) {
+          if (!isIpv4InCidr(ipAddress, network.cidr)) {
             throw new BadRequestException(
-              `La IP ${ipAddress} no es un host utilizable de ${network.cidr}`,
+              `La IP ${ipAddress} no pertenece al rango de ${network.cidr}`,
             );
           }
 
@@ -875,9 +876,9 @@ export class NetworksService {
         async (tx) => {
           const network = await this.getNetwork(networkId, tx);
 
-          if (!isUsableIpv4InCidr(ipAddress, network.cidr)) {
+          if (!isIpv4InCidr(ipAddress, network.cidr)) {
             throw new BadRequestException(
-              'La IP no pertenece al rango utilizable de la red',
+              'La IP no pertenece al rango administrado de la red',
             );
           }
 
